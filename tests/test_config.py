@@ -79,6 +79,64 @@ def test_load_ssl_config_no_verify():
     assert context.check_hostname is False
 
 
+def test_load_ssl_config_no_verify_with_cert(
+    monkeypatch, cert_pem_file, cert_private_key_file
+):
+    # Regression test: `verify=False` must not skip loading the client cert.
+    calls = []
+    original_load_cert_chain = ssl.SSLContext.load_cert_chain
+
+    def spy(self, *args):
+        calls.append(args)
+        return original_load_cert_chain(self, *args)
+
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", spy)
+
+    with pytest.warns(DeprecationWarning):
+        context = httpx.create_ssl_context(
+            verify=False, cert=(cert_pem_file, cert_private_key_file)
+        )
+
+    assert calls == [(cert_pem_file, cert_private_key_file)]
+    assert context.verify_mode == ssl.VerifyMode.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_load_ssl_config_no_verify_with_cert_str(monkeypatch, cert_pem_file):
+    # A string cert must still be forwarded as a single positional argument.
+    calls = []
+    monkeypatch.setattr(
+        ssl.SSLContext,
+        "load_cert_chain",
+        lambda self, *args: calls.append(args),
+    )
+
+    with pytest.warns(DeprecationWarning):
+        context = httpx.create_ssl_context(verify=False, cert=cert_pem_file)
+
+    assert calls == [(cert_pem_file,)]
+    assert context.verify_mode == ssl.VerifyMode.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_load_ssl_config_no_verify_with_encrypted_cert(
+    monkeypatch, cert_pem_file, cert_encrypted_private_key_file
+):
+    # An incorrect password must surface the underlying `ssl.SSLError`
+    # when verification is disabled, just as it does with `verify=True`.
+    def raise_ssl_error(self, *args):
+        raise ssl.SSLError("bad password")
+
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", raise_ssl_error)
+
+    with pytest.warns(DeprecationWarning):
+        with pytest.raises(ssl.SSLError):
+            httpx.create_ssl_context(
+                verify=False,
+                cert=(cert_pem_file, cert_encrypted_private_key_file, "password1"),
+            )
+
+
 def test_SSLContext_with_get_request(server, cert_pem_file):
     context = httpx.create_ssl_context()
     context.load_verify_locations(cert_pem_file)
