@@ -1,6 +1,7 @@
 import ssl
 import typing
 from pathlib import Path
+from unittest import mock
 
 import certifi
 import pytest
@@ -75,6 +76,44 @@ def test_load_ssl_config_cert_without_key_raises(cert_pem_file):
 
 def test_load_ssl_config_no_verify():
     context = httpx.create_ssl_context(verify=False)
+    assert context.verify_mode == ssl.VerifyMode.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_load_ssl_config_no_verify_with_cert_string(cert_pem_file):
+    with mock.patch.object(ssl.SSLContext, "load_cert_chain") as load_cert_chain:
+        with pytest.warns(DeprecationWarning):
+            context = httpx.create_ssl_context(verify=False, cert=cert_pem_file)
+    load_cert_chain.assert_called_once_with(cert_pem_file)
+    assert context.verify_mode == ssl.VerifyMode.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_load_ssl_config_no_verify_with_cert_and_key(
+    cert_pem_file, cert_private_key_file
+):
+    with mock.patch.object(ssl.SSLContext, "load_cert_chain") as load_cert_chain:
+        with pytest.warns(DeprecationWarning):
+            context = httpx.create_ssl_context(
+                verify=False, cert=(cert_pem_file, cert_private_key_file)
+            )
+    load_cert_chain.assert_called_once_with(cert_pem_file, cert_private_key_file)
+    assert context.verify_mode == ssl.VerifyMode.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_load_ssl_config_no_verify_with_cert_and_encrypted_key(
+    cert_pem_file, cert_encrypted_private_key_file
+):
+    with mock.patch.object(ssl.SSLContext, "load_cert_chain") as load_cert_chain:
+        with pytest.warns(DeprecationWarning):
+            context = httpx.create_ssl_context(
+                verify=False,
+                cert=(cert_pem_file, cert_encrypted_private_key_file, "password"),
+            )
+    load_cert_chain.assert_called_once_with(
+        cert_pem_file, cert_encrypted_private_key_file, "password"
+    )
     assert context.verify_mode == ssl.VerifyMode.CERT_NONE
     assert context.check_hostname is False
 
